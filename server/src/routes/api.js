@@ -59,7 +59,7 @@ export function apiRoutes({domain,auth,config,csrf,getIO=()=>null}){
   const notifyCrewConfirmation=async(record,date,count,workers)=>{
     const users=await domain.repo.list('users',{companyId:record.companyId,kind:'client',status:'active'},{limit:100});
     const crew=workers||'Crew names will be available in the secure request view.';
-    const fullyConfirmed=count===record.headcount,subject=`Crew Ask: crew ${fullyConfirmed?'fully ':''}confirmed for ${record.referenceNumber}`,text=`Your crew request has been updated for ${date}.\n\n${count} of ${record.headcount} ${record.role} workers are confirmed for ${record.site.name}.\n\nConfirmed crew and phone numbers:\n${crew}\n\nOpen Crew Ask to review the crew details and contact information.`,path='/client/labour/'+encodeURIComponent(record.referenceNumber);
+    const fullyConfirmed=count===record.headcount,subject=`Crew Ask: ${record.role} — crew ${fullyConfirmed?'fully ':''}confirmed`,text=`Your crew request has been updated for ${date}.\n\nCrew role: ${record.role}\nRequest: ${record.referenceNumber}\nWorksite: ${record.site.name}\n\n${count} of ${record.headcount} workers are confirmed.\n\nConfirmed crew and phone numbers:\n${crew}\n\nOpen Crew Ask to review the crew details and contact information.`,path='/client/labour/'+encodeURIComponent(record.referenceNumber);
     const delivery=await clientNotifier.completion(users,{subject,text,path}),whatsapp=await notifyClientWhatsApp(users,text);
     const push=await notifyClientPush(users,{title:subject,body:`${count} of ${record.headcount} ${record.role} workers are confirmed. Open Crew Ask to view the crew.`,path});
     return {...delivery,whatsapp,push};
