@@ -225,9 +225,9 @@ export class CrewDeskService {
     check(email||phone,'Provide at least one email or phone number.');
     if(b.companyId)await this.company(tx,u,b.companyId,{fence:true});
     const a=await tx.insert('users',{kind:'client',name,email,phone,normalizedEmail:email,normalizedPhone:phone,
-      emailAliases:[],phoneAliases:[],emailVerified:false,phoneVerified:false,companyId:b.companyId||null,status:'active',authVersion:0});
+      emailAliases:[],phoneAliases:[],emailVerified:false,phoneVerified:false,companyId:b.companyId||null,status:'active',notificationStatus:'pending_login',notificationsActivatedAt:null,authVersion:0});
     await this.claimIdentity(tx,'email',email,a.id);await this.claimIdentity(tx,'sms',phone,a.id);
-    await this.audit(tx,u,b.companyId?'account.linked':'account.unassigned',name+(b.companyId?' added and linked to the company.':' added as an unassigned contact.'),a.companyId,a.id);
+    await this.audit(tx,u,'account.pre_registered',name+(b.companyId?' pre-registered for '+(await tx.get('companies',b.companyId)).name+'.':' pre-registered as an unassigned contact.')+' Notifications stay off until their first verified sign-in.',a.companyId,a.id);
     return dto.userDTO(a,true);
   }
   async linkContact(tx,u,b,id) {
@@ -428,7 +428,7 @@ export class CrewDeskService {
     const q={};
     if(kind==='companies')q.status={$ne:'merged'};
     if(kind==='jobs'&&(query.excludeClosed===true||query.excludeClosed==='true'))q.status={$ne:'closed'};
-    if(kind==='accounts'){q.kind='client';q.status='active';if(query.filter==='unassigned')q.companyId=null;if(query.filter==='assigned')q.companyId={$ne:null};}
+    if(kind==='accounts'){q.kind='client';q.status='active';if(query.filter==='unassigned')q.companyId=null;if(query.filter==='assigned')q.companyId={$ne:null};if(query.filter==='pending-login')q.notificationStatus='pending_login';}
     if(!staff)q.companyId=u.companyId||'__unassigned__';else if(query.companyId)q.companyId=v.text(query.companyId,'Company ID',80);
     if(query.status&&query.status!=='all'&&kind!=='labour')q[kind==='labour'?'phase':'status']=v.oneOf(query.status,kind==='labour'?['new','info','staffing','filled','cancelled']:kind==='jobs'?['new','sourcing','shortlist','closed']:['pending','active','suspended'],'status');
     const fields={companies:['name','aliases','industry','email','phone'],accounts:['name','email','phone','emailAliases','phoneAliases'],labour:['referenceNumber','role','site.name','site.address'],jobs:['referenceNumber','title','location'],activity:['text','type'],worksites:['name','address']};

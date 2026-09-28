@@ -52,14 +52,14 @@ export function apiRoutes({domain,auth,config,csrf,getIO=()=>null}){
     return results.filter(result=>result.status==='fulfilled'&&result.value).length;
   };
   const notifyCompanyClients=async(companyId,subject,text,path='/client')=>{
-    const users=await domain.repo.list('users',{companyId,kind:'client',status:'active'},{limit:100});
+    const users=await domain.repo.list('users',{companyId,kind:'client',status:'active',notificationStatus:{$ne:'pending_login'}},{limit:100});
     const emails=emailReady()?await Promise.allSettled(users.filter(user=>user.email).map(user=>transport().sendMail(emailMessage(user.email,subject,text,path)))):[];
     await notifyClientPush(users,{title:subject,body:text,path});
     await notifyClientWhatsApp(users,text);
     return emails.filter(result=>result.status==='fulfilled').length;
   };
   const notifyCrewConfirmation=async(record,date,count,workers)=>{
-    const users=await domain.repo.list('users',{companyId:record.companyId,kind:'client',status:'active'},{limit:100});
+    const users=await domain.repo.list('users',{companyId:record.companyId,kind:'client',status:'active',notificationStatus:{$ne:'pending_login'}},{limit:100});
     const crew=workers||'Crew names will be available in the secure request view.';
     const fullyConfirmed=count===record.headcount,subject=`Crew Ask: ${record.role} — crew ${fullyConfirmed?'fully ':''}confirmed`,text=`Your crew request has been updated for ${date}.\n\nJob / crew role: ${record.role}\nRequest ID: ${record.referenceNumber}\nWorksite: ${record.site.name}\n\n${count} of ${record.headcount} workers are confirmed.\n\nConfirmed crew and phone numbers:\n${crew}\n\nOpen Crew Ask to review the crew details and contact information.`,htmlText=`Your crew request has been updated for **${date}**.\n\nJob / crew role: **${record.role}**\nRequest ID: **${record.referenceNumber}**\nWorksite: **${record.site.name}**\n\n**${count} of ${record.headcount} workers are confirmed.**\n\nConfirmed crew and phone numbers:\n${crew.split('\n').map((worker,index)=>`${index+1}. **${worker.replace(' — ','** — **')}**`).join('\n')}\n\nOpen Crew Ask to review the crew details and contact information.`,path='/client/labour/'+encodeURIComponent(record.referenceNumber);
     const delivery=await clientNotifier.completion(users,{subject,text,htmlText,path}),whatsapp=await notifyClientWhatsApp(users,text);

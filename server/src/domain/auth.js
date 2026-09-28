@@ -81,6 +81,10 @@ export class AuthService{
         if(c.channel==='email'&&u.email===c.destination)u.emailVerified=true;
         if(c.channel==='sms'&&u.phone===c.destination)u.phoneVerified=true;
       }
+      if(u.notificationStatus==='pending_login'){
+        u.notificationStatus='active';u.notificationsActivatedAt=this.now();
+        await this.domain.audit(tx,u,'account.activated',u.name+' completed their first verified sign-in. Client notifications are now enabled.',u.companyId,u.id);
+      }
       u.lastLoginAt=this.now();u=await tx.save('users',u);
       await this.domain.audit(tx,u,'account.signin',u.name+' signed in.',u.companyId,u.id);
       const session=await this.session(tx,u);return createdCompany?{...session,createdCompany:{id:createdCompany.id,name:createdCompany.name,signupAt:createdCompany.signupAt}}:session;
