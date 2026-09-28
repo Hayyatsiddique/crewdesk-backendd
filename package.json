@@ -1,0 +1,39 @@
+{
+  "name": "crewdesk-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CrewDesk Express and MongoDB API",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node --watch server/server.js",
+    "admin:create": "node scripts/create-admin.js",
+    "seed": "node scripts/seed.js",
+    "db:indexes": "node scripts/indexes.js",
+    "test": "node scripts/test.js unit",
+    "test:integration": "node scripts/test.js integration",
+    "setup": "node scripts/setup-env.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "mongoose": "^8.19.1",
+    "nodemailer": "^10.0.10",
+    "pino": "^9.9.5",
+    "pino-http": "^10.5.0",
+    "socket.io": "^4.8.1",
+    "web-push": "3.6.7",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.1",
+    "supertest": "^7.1.4"
+  }
+}

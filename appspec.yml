@@ -1,0 +1,24 @@
+version: 0.0
+os: linux
+
+files:
+  - source: /
+    destination: /home/ubuntu/Crewaskbackend/crewdesk-backend-main
+
+file_exists_behavior: OVERWRITE
+
+hooks:
+  AfterInstall:
+    - location: deploy/after_install.sh
+      timeout: 300
+      runas: ubuntu
+
+  ApplicationStart:
+    - location: deploy/start.sh
+      timeout: 60
+      runas: root
+
+  ValidateService:
+    - location: deploy/validate.sh
+      timeout: 60
+      runas: root
