@@ -15,11 +15,12 @@ export function createClientNotifier(config,{fetchImpl=fetch,createTransport=nod
   });
   const urlFor=path=>new URL(path,config.origin).toString();
 
-  async function email(to,{subject,text,path}){
+  async function email(to,message){
+    const {subject,text,path,htmlText}=message;
     if(!to||!emailReady())return false;
     await transport().sendMail({
       from:config.emailFrom,to,subject,text,
-      html:crewAskEmail({preheader:subject,heading:subject.replace(/^Crew Ask:\s*/,''),body:text,actionLabel:'Open Crew Ask',actionUrl:urlFor(path)})
+      html:crewAskEmail({preheader:subject,heading:subject.replace(/^Crew Ask:\s*/,''),body:htmlText||text,actionLabel:'Open Crew Ask',actionUrl:urlFor(path)})
     });
     return true;
   }
