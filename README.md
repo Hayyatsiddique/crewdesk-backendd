@@ -18,7 +18,7 @@ Configure MongoDB and provider credentials in `.env`. Never commit that file.
 npm test
 ```
 
-## Production
+## Productions
 
 The included `vercel.json` deploys `backend/api/index.js` as the production serverless API.
 
