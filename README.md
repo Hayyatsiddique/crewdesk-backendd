@@ -15,7 +15,7 @@ Configure MongoDB and provider credentials in `.env`. Never commit that file.
 ## Test
 
 ```powershell
-npm test
+npm test 
 ```
 
 ## Productions
