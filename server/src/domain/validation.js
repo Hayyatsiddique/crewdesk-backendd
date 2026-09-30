@@ -2,7 +2,7 @@ import { requireValue as check } from './errors.js';
 
 export const ZONES = ['America/Toronto', 'America/Winnipeg', 'America/Edmonton', 'America/Vancouver', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles'];
 export const DEFAULT_SHIFTS = [
-  {id:'days', name:'Days', startTime:'07:00', endTime:'15:30'},
+  {id:'days', name:'Days', startTime:'07:00', endTime:'15:00'},
   {id:'afternoons', name:'Afternoons', startTime:'15:00', endTime:'23:00'},
   {id:'nights', name:'Nights', startTime:'23:00', endTime:'07:00'}
 ];

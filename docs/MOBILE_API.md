@@ -243,7 +243,7 @@ Send an `Idempotency-Key` header containing a UUID.
   "days": [],
   "dates": [],
   "startTime": "07:00",
-  "endTime": "15:30",
+  "endTime": "15:00",
   "equipment": "Counterbalance forklift",
   "tickets": ["WHMIS", "Forklift"],
   "licences": ["AZ"],

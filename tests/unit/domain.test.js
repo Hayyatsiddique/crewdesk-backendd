@@ -7,6 +7,7 @@ const fresh=(f,collection,id)=>f.repo.get(collection,id);
 const create=f=>f.domain.execute(f.a,'labour.create',f.crew);
 
 test('client cannot execute staff company actions',async()=>{const f=await fixture();await rejects(()=>f.domain.execute(f.a,'company.status',{status:'active',version:1},f.ca.id),'STAFF_ONLY');});
+test('the default Days shift runs from 7:00 AM to 3:00 PM',()=>{assert.deepEqual(v.DEFAULT_SHIFTS[0],{id:'days',name:'Days',startTime:'07:00',endTime:'15:00'});});
 test('tenant B cannot read tenant A request, company or messages',async()=>{const f=await fixture(),r=await create(f);await rejects(()=>f.domain.getRecord(f.b,'labour',r.id),'NOT_FOUND');await rejects(()=>f.domain.getCompany(f.b,f.ca.id),'NOT_FOUND');await rejects(()=>f.domain.listMessages(f.b,r.id),'NOT_FOUND');});
 test('tenant B cannot modify tenant A worksite or send its request messages',async()=>{const f=await fixture(),r=await create(f);await rejects(()=>f.domain.execute(f.b,'site.update',{...f.site,version:0},f.site.id),'NOT_FOUND');await rejects(()=>f.domain.execute(f.b,'labour.message',{text:'intrusion'},r.id),'NOT_FOUND');});
 test('client-supplied companyId cannot select another tenant',async()=>{const f=await fixture();const r=await f.domain.execute(f.a,'labour.create',{...f.crew,companyId:f.cb.id});assert.equal(r.companyId,f.ca.id);const rows=await f.domain.list(f.b,'labour',{companyId:f.ca.id});assert.equal(rows.pagination.total,0);});

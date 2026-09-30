@@ -68,4 +68,7 @@ export class MongoRepository{
 export async function initializeDatabase(){
   const {ensureIndexes}=await import('../models/index.js');await ensureIndexes();
   for(const id of ['labour','jobs'])await models.counters.updateOne({_id:id},{$setOnInsert:{value:1000,version:0,_fence:0,createdAt:new Date(),updatedAt:new Date()}},{upsert:true});
+  // Align only the untouched legacy Days template. Existing requests and custom
+  // company schedules retain their original shift times.
+  await models.companies.updateMany({defaultShifts:{$elemMatch:{id:'days',name:'Days',startTime:'07:00',endTime:'15:30'}}},{$set:{'defaultShifts.$[shift].endTime':'15:00',updatedAt:new Date()},$inc:{version:1}},{arrayFilters:[{'shift.id':'days','shift.name':'Days','shift.startTime':'07:00','shift.endTime':'15:30'}]});
 }
