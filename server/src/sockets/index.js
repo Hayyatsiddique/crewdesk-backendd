@@ -24,9 +24,10 @@ export function attachSockets(server,{auth,config,csrf,logger}){
     stream=models.events.watch([{$match:{operationType:'insert'}}],{fullDocument:'default'});
     stream.on('change',change=>{
       const e=change.fullDocument;if(!e)return;
-      for(const id of e.metadata?.affectedUserIds||[])io.in('user:'+id).disconnectSockets(true);
       // Invalidation metadata only. Internal event text, notes and drafts are never broadcast.
       const notice={type:e.type,recordId:e.recordId,at:new Date(e.createdAt).toISOString()};
+      for(const id of e.metadata?.affectedUserIds||[])io.in('user:'+id).disconnectSockets(true);
+      for(const id of e.metadata?.refreshUserIds||[])io.to('user:'+id).emit('invalidate',notice);
       io.to('staff').emit('invalidate',notice);
       if(e.companyId)io.to('company:'+e.companyId).emit('invalidate',notice);
       if(e.actorId)io.to('user:'+e.actorId).emit('invalidate',notice);

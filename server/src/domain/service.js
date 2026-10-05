@@ -234,9 +234,13 @@ export class CrewDeskService {
     this.staff(u);check(b.confirm===true,'Confirm this company association.');
     const a=await tx.get('users',id);if(!a||a.kind!=='client'||a.status!=='active')fail(404,'NOT_FOUND','Contact not found.');
     expectedVersion(a,b.version);const c=await this.company(tx,u,b.companyId,{fence:true});const old=a.companyId;
-    a.companyId=c.id;a.requestedCompanyId=null;a.requestedCompanyName='';a.authVersion++;
-    const result=await tx.save('users',a);await tx.removeWhere('sessions',{userId:a.id});
-    await this.audit(tx,u,'account.linked',a.name+' linked to '+c.name+'. Existing requests remain with their original companies.',c.id,a.id,{previousCompanyId:old,affectedUserIds:[a.id]});
+    // This is an explicit approval of the account's requested company. Keep its
+    // authenticated devices signed in: every request reads the current user, so
+    // the newly approved company scope takes effect immediately. Identity,
+    // account-merge, removal, and disable actions still revoke sessions.
+    a.companyId=c.id;a.requestedCompanyId=null;a.requestedCompanyName='';
+    const result=await tx.save('users',a);
+    await this.audit(tx,u,'account.linked',a.name+' linked to '+c.name+'. Existing requests remain with their original companies.',c.id,a.id,{previousCompanyId:old,refreshUserIds:[a.id]});
     return dto.userDTO(result,true);
   }
   async mergeCompanies(tx,u,b) {
