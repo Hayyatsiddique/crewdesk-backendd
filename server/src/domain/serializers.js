@@ -3,7 +3,10 @@ const pick = (o, keys) => Object.fromEntries(keys.filter(k => o[k] !== undefined
 const base = ['id','version','createdAt','updatedAt'];
 export function userDTO(u, staff = false) {
   return pick(u,[...base,'kind','name','email','phone','companyId','status','emailAliases','phoneAliases','emailVerified','phoneVerified',
-    ...(staff ? ['requestedCompanyId','requestedCompanyName','lastLoginAt','notificationStatus','notificationsActivatedAt','mergedInto','unverifiedEmail','unverifiedPhone'] : [])]);
+    // A client may safely see the company name they asked to join. This avoids
+    // an ambiguous “not linked” state while the staff approval is pending.
+    'requestedCompanyName',
+    ...(staff ? ['requestedCompanyId','lastLoginAt','notificationStatus','notificationsActivatedAt','mergedInto','unverifiedEmail','unverifiedPhone'] : [])]);
 }
 export function siteDTO(s) { return pick(s,[...base,'name','address','zone','contactName','contactPhone','notes','ppe']); }
 export function companyDTO(c, sites = [], staff = false) {

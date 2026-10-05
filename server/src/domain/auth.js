@@ -66,11 +66,15 @@ export class AuthService{
         return this.session(tx,u);
       }
       if(!u&&c.intent!=='signup')return {error:'Sign-in could not be completed. Create an account or contact staff.'};
-      let createdCompany=null;
+      let createdCompany=null,pendingCompanyLink=null;
       if(!u){
         const known=c.signup.companyName?await tx.get('companyNames',v.nameKey(c.signup.companyName)):null;
         let companyId=null,requestedCompanyId=null;
-        if(known)requestedCompanyId=known.companyId;
+        if(known){
+          requestedCompanyId=known.companyId;
+          const company=await tx.get('companies',requestedCompanyId);
+          pendingCompanyLink={companyId:requestedCompanyId,companyName:company?.name||c.signup.companyName,contactName:c.signup.name,contactEmail:c.channel==='email'?c.destination:'',contactPhone:c.channel==='sms'?c.destination:''};
+        }
         else if(c.signup.companyName){createdCompany=await this.domain.createCompany(tx,{name:c.signup.companyName,contactName:c.signup.name},null);companyId=createdCompany.id;}
         u=await tx.insert('users',{kind:'client',name:c.signup.name,email:c.channel==='email'?c.destination:'',phone:c.channel==='sms'?c.destination:'',normalizedEmail:c.channel==='email'?c.destination:'',normalizedPhone:c.channel==='sms'?c.destination:'',emailAliases:[],phoneAliases:[],emailVerified:c.channel==='email',phoneVerified:c.channel==='sms',companyId,requestedCompanyId,requestedCompanyName:requestedCompanyId?c.signup.companyName:'',status:'active',authVersion:0,unverifiedEmail:c.channel==='sms'?c.signup.secondary:'',unverifiedPhone:c.channel==='email'?c.signup.secondary:''});
         // The optional secondary contact is never an authentication identity until independently verified.
@@ -87,7 +91,9 @@ export class AuthService{
       }
       u.lastLoginAt=this.now();u=await tx.save('users',u);
       await this.domain.audit(tx,u,'account.signin',u.name+' signed in.',u.companyId,u.id);
-      const session=await this.session(tx,u);return createdCompany?{...session,createdCompany:{id:createdCompany.id,name:createdCompany.name,signupAt:createdCompany.signupAt}}:session;
+      const session=await this.session(tx,u);
+      if(createdCompany)return {...session,createdCompany:{id:createdCompany.id,name:createdCompany.name,signupAt:createdCompany.signupAt}};
+      return pendingCompanyLink?{...session,pendingCompanyLink}:session;
     });
     // Throw outside the transaction: failed attempt counts and consumed codes must persist.
     if(result.error)fail(400,'OTP_INVALID',result.error);return result;

@@ -414,11 +414,12 @@ export class CrewDeskService {
   }
   async metrics(u) {
     this.staff(u);const cursor=await this.repo.get('readCursors',u.id+':company.signup');
-    const [pending,unread,unassigned,newLabour,openRoles,companyCount]=await Promise.all([
+    const [pending,unread,unassigned,newLabour,pendingChanges,openRoles,companyCount]=await Promise.all([
       this.repo.count('companies',{status:'pending'}),this.repo.count('events',{type:'company.signup',...(cursor?{createdAt:{$gt:cursor.through}}:{})}),
       this.repo.count('users',{kind:'client',status:'active',companyId:null}),this.repo.count('labour',{phase:'new'}),
+      this.repo.count('labour',{$or:[{pendingChange:{$ne:null}},{pendingCancel:{$ne:null}}]}),
       this.repo.count('jobs',{status:{$ne:'closed'}}),this.repo.count('companies',{status:{$ne:'merged'}})
-    ]);return {pending,unread,unassigned,newLabour,openRoles,companyCount,asOf:this.now()};
+    ]);return {pending,unread,unassigned,newLabour,pendingChanges,openRoles,companyCount,actionRequired:pending+unassigned+newLabour+pendingChanges,asOf:this.now()};
   }
   async list(u,kind,query={}) {
     const tx=this.repo;const {page,limit,search}=v.pageInput(query),staff=u.kind==='staff';
@@ -429,10 +430,10 @@ export class CrewDeskService {
     if(kind==='companies')q.status={$ne:'merged'};
     if(kind==='jobs'&&(query.excludeClosed===true||query.excludeClosed==='true'))q.status={$ne:'closed'};
     if(kind==='accounts'){q.kind='client';q.status='active';if(query.filter==='unassigned')q.companyId=null;if(query.filter==='assigned')q.companyId={$ne:null};if(query.filter==='pending-login')q.notificationStatus='pending_login';}
-    if(!staff)q.companyId=u.companyId||'__unassigned__';else if(query.companyId)q.companyId=v.text(query.companyId,'Company ID',80);
+    if(!staff)q.companyId=u.companyId||'__unassigned__';else if(query.companyId){const companyId=v.text(query.companyId,'Company ID',80);if(kind==='accounts')q.$or=[{companyId},{requestedCompanyId:companyId}];else q.companyId=companyId;}
     if(query.status&&query.status!=='all'&&kind!=='labour')q[kind==='labour'?'phase':'status']=v.oneOf(query.status,kind==='labour'?['new','info','staffing','filled','cancelled']:kind==='jobs'?['new','sourcing','shortlist','closed']:['pending','active','suspended'],'status');
     const fields={companies:['name','aliases','industry','email','phone'],accounts:['name','email','phone','emailAliases','phoneAliases'],labour:['referenceNumber','role','site.name','site.address'],jobs:['referenceNumber','title','location'],activity:['text','type'],worksites:['name','address']};
-    if(search)q.$or=fields[kind].map(key=>({[key]:{$regex:v.regexEscape(search),$options:'i'}}));
+    if(search){const matches=fields[kind].map(key=>({[key]:{$regex:v.regexEscape(search),$options:'i'}}));if(q.$or){const companyScope=q.$or;delete q.$or;q.$and=[{$or:companyScope},{$or:matches}];}else q.$or=matches;}
     let rows,total;
     if(kind==='labour'){
       if(query.status&&query.status!=='all')v.oneOf(query.status,['new','info','staffing','filled','cancelled'],'status');

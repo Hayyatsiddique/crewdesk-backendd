@@ -18,7 +18,9 @@ import {today,plusDay} from '../../server/src/domain/validation.js';
 
 const uri=process.env.TEST_MONGODB_URI;
 if(!uri)throw new Error('TEST_MONGODB_URI is required. Use a dedicated TEST replica set, not production.');
-const dbName='crewdesk_test_'+randomUUID().replaceAll('-','');
+// MongoDB caps database names at 38 bytes. Keep the dedicated random test
+// database well below that limit so teardown can always remove it safely.
+const dbName='cdt_'+randomUUID().replaceAll('-','').slice(0,16);
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const result=response=>response.body.data;
 

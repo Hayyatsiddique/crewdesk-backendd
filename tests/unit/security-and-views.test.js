@@ -6,6 +6,16 @@ import {labourPipeline} from '../../server/src/repositories/labour-pipeline.js';
 const config={production:true,secret:'s'.repeat(64),origins:['https://crewdesk.example.test']};
 function issue(portal='client',jar={}){let value,cookie;const security=csrfSecurity(config),req={cookies:jar,get:name=>name==='X-Portal'?portal:undefined};security.issue(req,{cookie:(name,token,options)=>cookie={name,token,options},json:body=>value=body.data.csrfToken});return {security,value,cookie};}
 test('production cookies are Secure, HttpOnly, SameSite Strict and host scoped',()=>{assert.deepEqual(cookieOptions(config),{secure:true,httpOnly:true,sameSite:'strict',path:'/'});assert.equal(cookieName('client',true),'__Host-cd_client');assert.equal(cookieName('staff',true),'__Host-cd_staff');});
+test('staff/admin sessions are independent per device and expire exactly after 90 days',async()=>{
+  const f=await fixture(),started=f.clock().getTime(),desktop=await f.auth.session(f.repo,f.staff),mobile=await f.auth.session(f.repo,f.staff);
+  assert.notEqual(desktop.token,mobile.token);
+  assert.equal(Date.parse(desktop.expiresAt)-started,90*24*60*60*1000);
+  assert.equal(Date.parse(mobile.expiresAt)-started,90*24*60*60*1000);
+  await f.auth.authenticate(desktop.token,'staff');await f.auth.authenticate(mobile.token,'staff');
+  f.advance(90*24*60*60*1000);
+  await assert.rejects(()=>f.auth.authenticate(desktop.token,'staff'),e=>e.code==='SESSION_EXPIRED');
+  await assert.rejects(()=>f.auth.authenticate(mobile.token,'staff'),e=>e.code==='SESSION_EXPIRED');
+});
 test('valid CSRF tokens are portal-bound and remain stable when another tab opens',()=>{const r=issue();assert.ok(r.security.valid('client',r.value,r.cookie.token));assert.equal(r.security.valid('staff',r.value,r.cookie.token),false);const second=issue('client',{[r.cookie.name]:r.cookie.token});assert.equal(second.value,r.value);});
 test('CSRF rejects missing tokens and untrusted origins',()=>{const r=issue();for(const origin of ['https://attacker.example','https://crewdesk.example.test']){let error;r.security.check({method:'POST',cookies:{},get:name=>({'Origin':origin,'X-Portal':'client'}[name])},{},e=>error=e);assert.equal(error.status,403);}});
 test('malformed non-ASCII CSRF cookie fails without a timing-safe comparison exception',()=>{const r=issue();const malformed=r.cookie.token.slice(0,-1)+'\u00e9';assert.equal(r.security.valid('client',r.value,malformed),false);});
