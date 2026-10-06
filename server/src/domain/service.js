@@ -116,9 +116,9 @@ export class CrewDeskService {
   get commands() {
     return {
       'company.update':this.updateCompany,'company.status':this.companyStatus,'company.merge':this.mergeCompanies,
-      'recruiter.create':this.createRecruiter,'recruiter.contact':this.updateRecruiterContact,'recruiter.remove':this.removeRecruiter,'company.recruiter':this.assignCompanyRecruiter,'labour.recruiter':this.assignLabourRecruiter,
+      'recruiter.create':this.createRecruiter,'recruiter.contact':this.updateRecruiterContact,'recruiter.signup-notifications':this.updateRecruiterSignupNotifications,'recruiter.remove':this.removeRecruiter,'company.recruiter':this.assignCompanyRecruiter,'labour.recruiter':this.assignLabourRecruiter,
       'site.create':this.createSite,'site.update':this.updateSite,
-      'account.create':this.createContact,'account.link':this.linkContact,'account.merge':this.mergeContacts,
+      'account.create':this.createContact,'account.link':this.linkContact,'account.remove':this.removeContact,'account.merge':this.mergeContacts,
       'labour.create':this.createLabour,'labour.accept':this.acceptLabour,'labour.confirm':this.confirmLabour,
       'labour.message':this.sendMessage,'labour.note':this.labourNote,'labour.change':this.requestChange,
       'labour.cancel':this.requestCancel,'labour.resolve':this.resolveChange,
@@ -151,9 +151,9 @@ export class CrewDeskService {
       await this.audit(tx,u,'recruiter.reactivated',name+' restored to the active recruiter team.',null,restored.id);
       return {id:restored.id,version:restored.version,name:restored.name,email:restored.email,phone:restored.phone,whatsappPhone:restored.whatsappPhone||'',active:restored.active,userId:restored.userId,createdAt:restored.createdAt,updatedAt:restored.updatedAt};
     }
-    const recruiter=await tx.insert('recruiters',{name,email,phone,whatsappPhone,active:true,userId:null});
+    const recruiter=await tx.insert('recruiters',{name,email,phone,whatsappPhone,signupNotificationChannels:['email'],active:true,userId:null});
     await this.audit(tx,u,'recruiter.created',name+' added to the recruiter team.',null,recruiter.id);
-    return {id:recruiter.id,version:recruiter.version,name:recruiter.name,email:recruiter.email,phone:recruiter.phone,whatsappPhone:recruiter.whatsappPhone||'',active:recruiter.active,userId:recruiter.userId,createdAt:recruiter.createdAt,updatedAt:recruiter.updatedAt};
+    return {id:recruiter.id,version:recruiter.version,name:recruiter.name,email:recruiter.email,phone:recruiter.phone,whatsappPhone:recruiter.whatsappPhone||'',signupNotificationChannels:recruiter.signupNotificationChannels,active:recruiter.active,userId:recruiter.userId,createdAt:recruiter.createdAt,updatedAt:recruiter.updatedAt};
   }
   async updateRecruiterContact(tx,u,b,id) {
     this.staff(u);const recruiter=await tx.get('recruiters',id);if(!recruiter||!recruiter.active)fail(404,'NOT_FOUND','Team member not found.');expectedVersion(recruiter,b.version);
@@ -177,7 +177,14 @@ export class CrewDeskService {
       for(const [channel,destination] of [['email',email],['sms',phone]]){const identity=destination?await tx.get('identities',channel+':'+destination):null;if(identity)fail(409,'DUPLICATE_CONTACT','This email or phone already belongs to a contact. Link that contact instead.');}
     }
     recruiter.email=email;recruiter.phone=phone;recruiter.whatsappPhone=whatsappPhone;const saved=await tx.save('recruiters',recruiter);
-    await this.audit(tx,u,'recruiter.contact_updated',saved.name+' work email and contact numbers updated.',null,saved.id);return {id:saved.id,version:saved.version,name:saved.name,email:saved.email,phone:saved.phone,whatsappPhone:saved.whatsappPhone||'',active:saved.active,userId:saved.userId,createdAt:saved.createdAt,updatedAt:saved.updatedAt};
+    await this.audit(tx,u,'recruiter.contact_updated',saved.name+' work email and contact numbers updated.',null,saved.id);return {id:saved.id,version:saved.version,name:saved.name,email:saved.email,phone:saved.phone,whatsappPhone:saved.whatsappPhone||'',signupNotificationChannels:saved.signupNotificationChannels??['email'],active:saved.active,userId:saved.userId,createdAt:saved.createdAt,updatedAt:saved.updatedAt};
+  }
+  async updateRecruiterSignupNotifications(tx,u,b,id) {
+    this.staff(u);const recruiter=await this.recruiter(tx,id);expectedVersion(recruiter,b.version);
+    recruiter.signupNotificationChannels=[...new Set((b.notificationChannels||[]).map(channel=>v.oneOf(channel,['email','sms'],'new-company notification channel')))];
+    const saved=await tx.save('recruiters',recruiter);
+    await this.audit(tx,u,'recruiter.signup_notifications_updated',saved.name+' new-company notification settings updated.',null,saved.id,{channels:saved.signupNotificationChannels});
+    return {id:saved.id,version:saved.version,signupNotificationChannels:saved.signupNotificationChannels};
   }
   async removeRecruiter(tx,u,b,id) {
     this.staff(u);const recruiter=await tx.get('recruiters',id);if(!recruiter||!recruiter.active)fail(404,'NOT_FOUND','Team member not found.');expectedVersion(recruiter,b.version);
@@ -242,6 +249,14 @@ export class CrewDeskService {
     const result=await tx.save('users',a);
     await this.audit(tx,u,'account.linked',a.name+' linked to '+c.name+'. Existing requests remain with their original companies.',c.id,a.id,{previousCompanyId:old,refreshUserIds:[a.id]});
     return dto.userDTO(result,true);
+  }
+  async removeContact(tx,u,b,id) {
+    this.staff(u);const a=await tx.get('users',id);
+    if(!a||a.kind!=='client'||a.status!=='active')fail(404,'NOT_FOUND','Active client contact not found.');
+    expectedVersion(a,b.version);a.status='disabled';a.authVersion++;
+    const saved=await tx.save('users',a);await tx.removeWhere('sessions',{userId:a.id});
+    await this.audit(tx,u,'account.disabled',a.name+' client access disabled. Historical requests and audit records were retained.',a.companyId,a.id,{affectedUserIds:[a.id]});
+    return dto.userDTO(saved,true);
   }
   async mergeCompanies(tx,u,b) {
     this.staff(u);check(b.confirm===true,'Confirm the company merge.');check(b.sourceId!==b.targetId,'Choose two different companies.');
@@ -325,10 +340,10 @@ export class CrewDeskService {
     const r=await this.activeLabour(tx,u,ref,b.version);
     if(r.pendingChange||r.pendingCancel)fail(422,'PENDING_REVIEW','Resolve the pending change or cancellation first.');
     check(v.scheduleHas(r,b.date),'Choose a date included in this request.');
-    const count=v.integer(b.count,'Confirmed headcount',0,r.headcount),workers=(b.workers||[]).map(x=>({name:v.text(x.name,'Worker name',100),phone:v.phone(x.phone)}));check(!workers.length||workers.length===count,'Add a name and contact number for every confirmed worker.');r.fills={...r.fills,[b.date]:count};r.workers={...r.workers,[b.date]:workers};
-    r.phase=r.mode==='one'&&count===r.headcount?'filled':'staffing';const saved=await tx.save('labour',r);
-    await this.message(tx,u,r,`${count} of ${r.headcount} people confirmed for ${b.date}.`);
-    await this.audit(tx,u,'labour.confirmed',`${r.referenceNumber}: ${count} of ${r.headcount} confirmed for ${b.date}.`,r.companyId,r.referenceNumber,{date:b.date,count});
+    const requested=v.headcountFor(r,b.date),count=v.integer(b.count,'Confirmed headcount',0,requested),workers=(b.workers||[]).map(x=>({name:v.text(x.name,'Worker name',100),phone:v.phone(x.phone)}));check(!workers.length||workers.length===count,'Add a name and contact number for every confirmed worker.');r.fills={...r.fills,[b.date]:count};r.workers={...r.workers,[b.date]:workers};
+    r.phase=r.mode==='one'&&count===requested?'filled':'staffing';const saved=await tx.save('labour',r);
+    await this.message(tx,u,r,`${count} of ${requested} people confirmed for ${b.date}.`);
+    await this.audit(tx,u,'labour.confirmed',`${r.referenceNumber}: ${count} of ${requested} confirmed for ${b.date}.`,r.companyId,r.referenceNumber,{date:b.date,count,requested});
     return this.labourView(tx,saved,u);
   }
   async sendMessage(tx,u,b,ref) {
@@ -455,7 +470,7 @@ export class CrewDeskService {
   }
   async listRecruiters(u) {
     this.staff(u);const rows=await this.repo.list('recruiters',{active:true},{limit:500,sort:{name:1,id:1}});
-    return {items:rows.map(r=>({id:r.id,version:r.version,name:r.name,email:r.email,phone:r.phone||'',whatsappPhone:r.whatsappPhone||'',active:r.active,userId:r.userId||null,createdAt:r.createdAt,updatedAt:r.updatedAt}))};
+    return {items:rows.map(r=>({id:r.id,version:r.version,name:r.name,email:r.email,phone:r.phone||'',whatsappPhone:r.whatsappPhone||'',signupNotificationChannels:r.signupNotificationChannels??['email'],active:r.active,userId:r.userId||null,createdAt:r.createdAt,updatedAt:r.updatedAt}))};
   }
   async getCompany(u,id) {
     if(u.kind==='client'&&!u.companyId)return null;

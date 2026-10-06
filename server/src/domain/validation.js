@@ -96,15 +96,28 @@ export function schedule(input, zone, at = new Date()) {
   }
   return {mode, start, end, days, dates};
 }
+export function headcountFor(record, date) {
+  const perDate = record?.headcountByDate, selected = perDate instanceof Map ? perDate.get(date) : perDate?.[date];
+  return Number.isInteger(selected) && selected > 0 ? selected : record.headcount;
+}
+export function headcountsByDate(input, scheduleValue, headcount) {
+  if (scheduleValue.mode !== 'dates') return {};
+  const supplied = input.headcountByDate;
+  if (supplied === undefined) return Object.fromEntries(scheduleValue.dates.map(date => [date, headcount]));
+  check(supplied && typeof supplied === 'object' && !Array.isArray(supplied), 'Set a crew count for every selected date.');
+  const keys = Object.keys(supplied);
+  check(keys.length === scheduleValue.dates.length && keys.every(date => scheduleValue.dates.includes(date)), 'Set a crew count for every selected date.');
+  return Object.fromEntries(scheduleValue.dates.map(date => [date, integer(supplied[date], `Crew count for ${date}`, 1, 500)]));
+}
 export function siteInput(b) {
   return {name:text(b.name,'Site name',100), address:text(b.address,'Address',300),
     zone:oneOf(b.zone,ZONES,'site time zone'), contactName:text(b.contactName,'On-site contact',100),
     contactPhone:phone(b.contactPhone,true), notes:optionalText(b.notes,'Site notes',2000), ppe:tags(b.ppe,'PPE')};
 }
 export function crewInput(b, site, at) {
-  const role = text(b.role,'Position',100), equipment = optionalText(b.equipment,'Equipment',120);
+  const role = text(b.role,'Position',100), equipment = optionalText(b.equipment,'Equipment',120), headcount = integer(b.headcount,'Headcount',1,500), scheduleValue = schedule(b,site.zone,at);
   check(!/forklift/i.test(role) || equipment, 'Enter the forklift or equipment type.');
-  return {role, headcount:integer(b.headcount,'Headcount',1,500), ...schedule(b,site.zone,at),
+  return {role, headcount, ...scheduleValue, headcountByDate:headcountsByDate(b,scheduleValue,headcount),
     ...times(b.startTime,b.endTime), equipment, tickets:tags(b.tickets), licences:tags(b.licences), ppe:tags(b.ppe),
     contactName:text(b.contactName,'On-site contact',100), contactPhone:phone(b.contactPhone,true), notes:optionalText(b.notes,'Notes',5000)};
 }

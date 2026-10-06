@@ -22,6 +22,8 @@ export function apiRoutes({domain,auth,config,csrf,getIO=()=>null}){
   const emailMessage=(to,subject,text,path)=>({from:config.emailFrom,to,subject,text,html:crewAskEmail({preheader:subject,heading:subject.replace(/^Crew Ask:\s*/,''),body:text,actionLabel:'Open Crew Ask',actionUrl:config.origin+path})});
   const speechDate=value=>{const [year,month,day]=String(value||'').split('-').map(Number);return Number.isInteger(year)&&Number.isInteger(month)&&Number.isInteger(day)?new Intl.DateTimeFormat('en-CA',{month:'long',day:'numeric',year:'numeric',timeZone:'UTC'}).format(new Date(Date.UTC(year,month-1,day))):String(value||'the requested date');};
   const speechLocation=site=>site?.address?.trim()||'the client worksite';
+  const requestedFor=(record,date)=>{const perDate=record.headcountByDate,value=perDate instanceof Map?perDate.get(date):perDate?.[date];return Number(value??record.headcount);};
+  const crewScheduleSummary=record=>record.mode==='dates'?record.dates.map(date=>`${date}: ${requestedFor(record,date)} workers`).join('\n'):record.end&&record.end!==record.start?`${record.start} to ${record.end}`:record.start;
   const notifyRecruiter=async(recruiter,channels=['email'],subject,text,path='/staff',voiceText='')=>{
     const selected=new Set(channels||[]),message={subject,text,path},attempts=[];
     if(selected.has('email')&&recruiter?.email)attempts.push(clientNotifier.email(recruiter.email,message));
@@ -32,21 +34,26 @@ export function apiRoutes({domain,auth,config,csrf,getIO=()=>null}){
     return results.some(result=>result.status==='fulfilled'&&result.value);
   };
   const notifyCompanyRecruiter=async(companyId,subject,text,voiceText='')=>{
-    const company=await domain.repo.get('companies',companyId),ids=company?.recruiterIds?.length?company.recruiterIds:(company?.recruiterId?[company.recruiterId]:[]);if(!ids.length)return false;
+    const company=await domain.repo.get('companies',companyId),ids=company?.recruiterIds?.length?company.recruiterIds:(company?.recruiterId?[company.recruiterId]:[]);if(!ids.length)return null;
     const results=await Promise.all(ids.map(async id=>{try{return await notifyRecruiter(await domain.repo.get('recruiters',id),company.recruiterNotifications?.[id]??['email'],subject,text,'/staff',voiceText);}catch{return false;}}));return results.some(Boolean);
   };
-  const notifyRecruiterTeam=async(subject,text,path='/staff',voiceText='')=>{
-    // Recruiters may not have signed in yet, while some staff accounts are not
-    // represented by a recruiter record. Alert the union so no administrator
-    // misses a registration that needs an assignment decision.
+  const notifySignupTeam=async(subject,text,path='/staff')=>{
+    // New company registrations are hard-limited to the selected Email and
+    // SMS channels. Voice, WhatsApp, and browser push are never used here.
+    const recruiters=await domain.repo.list('recruiters',{active:true},{limit:500,sort:{name:1,id:1}});
+    const results=await Promise.allSettled(recruiters.map(recruiter=>notifyRecruiter(recruiter,(recruiter.signupNotificationChannels??['email']).filter(channel=>channel==='email'||channel==='sms'),subject,text,path)));
+    return results.filter(result=>result.status==='fulfilled'&&result.value).length;
+  };
+  const notifyRecruiterTeam=async(subject,text,path='/staff')=>{
+    // Operational alerts keep their established email-only team behaviour.
+    // They are deliberately separate from the new-company alert preferences.
     const [recruiters,staff]=await Promise.all([
       domain.repo.list('recruiters',{active:true},{limit:500,sort:{name:1,id:1}}),
       domain.repo.list('users',{kind:'staff',status:'active'},{limit:500,sort:{name:1,id:1}})
     ]);
     const emails=[...new Set([...recruiters,...staff].map(person=>String(person.email||'').trim().toLowerCase()).filter(Boolean))];
-    const emailResults=await Promise.allSettled(emails.map(email=>clientNotifier.email(email,{subject,text,path})));
-    const voiceResults=config.twilioVoiceNewCompany?await Promise.allSettled(recruiters.map(recruiter=>notifyRecruiter(recruiter,['voice'],subject,text,path,voiceText))):[];
-    return [...emailResults,...voiceResults].filter(result=>result.status==='fulfilled'&&result.value).length;
+    const results=await Promise.allSettled(emails.map(email=>clientNotifier.email(email,{subject,text,path})));
+    return results.filter(result=>result.status==='fulfilled'&&result.value).length;
   };
   const notifyPush=async(users,message)=>{
     if(!pushNotifier.enabled()||!users.length)return 0;
@@ -69,6 +76,7 @@ export function apiRoutes({domain,auth,config,csrf,getIO=()=>null}){
     return emails.filter(result=>result.status==='fulfilled').length;
   };
   const notifyCrewConfirmation=async(record,date,count,workers)=>{
+    record={...record,headcount:requestedFor(record,date)};
     const users=await domain.repo.list('users',{companyId:record.companyId,kind:'client',status:'active',notificationStatus:{$ne:'pending_login'}},{limit:100});
     const crew=workers||'Crew names will be available in the secure request view.',timing=labourNotificationTiming(record),location=speechLocation(record.site);
     const fullyConfirmed=count===record.headcount,subject=`Crew Ask: ${record.role} — crew ${fullyConfirmed?'fully ':''}confirmed`,text=`Your crew request has been updated for ${date}.\n\nJob / crew role: ${record.role}\nRequest ID: ${record.referenceNumber}\nLocation: ${location}\n\n${timing}\n\n${count} of ${record.headcount} workers are confirmed.\n\nConfirmed crew and phone numbers:\n${crew}\n\nOpen Crew Ask to review the crew details and contact information.`,htmlText=`Your crew request has been updated for **${date}**.\n\nJob / crew role: **${record.role}**\nRequest ID: **${record.referenceNumber}**\nLocation: **${location}**\n\n${timing}\n\n**${count} of ${record.headcount} workers are confirmed.**\n\nConfirmed crew and phone numbers:\n${crew.split('\n').map((worker,index)=>`${index+1}. **${worker.replace(' — ','** — **')}**`).join('\n')}\n\nOpen Crew Ask to review the crew details and contact information.`,path='/client/labour/'+encodeURIComponent(record.referenceNumber);
@@ -97,7 +105,11 @@ export function apiRoutes({domain,auth,config,csrf,getIO=()=>null}){
       const request=value.pendingCompanyLink,contact=request.contactEmail||request.contactPhone||'their verified contact';
       alert={subject:'Crew Ask: client account needs company link approval',text:`${request.contactName} (${contact}) registered against the existing company ${request.companyName}. The company is already registered; review and approve the account link.`,path:'/staff/company/'+encodeURIComponent(request.companyId),voiceText:`Marks H R alert. ${request.contactName} registered against existing company ${request.companyName}. The company is already registered and their account needs a company link approval.`};
     }
-    if(alert)try{await Promise.all([notifyRecruiterTeam(alert.subject,`Hello team,\n\n${alert.text}\n\nOpen Crew Ask and complete the required review.`,alert.path,alert.voiceText),notifyStaffPush({title:alert.subject,body:alert.text,path:alert.path})]);}catch{}
+    if(alert)try{
+      const text=`Hello team,\n\n${alert.text}\n\nOpen Crew Ask and complete the required review.`;
+      if(value.createdCompany)await notifySignupTeam(alert.subject,text,alert.path);
+      else if(await notifyCompanyRecruiter(value.pendingCompanyLink.companyId,alert.subject,text,alert.voiceText)===null)await notifySignupTeam(alert.subject,text,alert.path);
+    }catch{}
     res.json({data:sessionResponse(res,value,config)});
   }catch(error){next(error);}});
   a.post('/staff/request-otp',validate('staffOtp'),read(req=>auth.requestStaffOtp(req.body,req.ip)));
@@ -125,6 +137,7 @@ export function apiRoutes({domain,auth,config,csrf,getIO=()=>null}){
       r.get('/recruiters',read(req=>domain.listRecruiters(req.user)));
       r.post('/recruiters',validate('recruiter.create'),command(domain,'recruiter.create',{created:true}));
       r.patch('/recruiters/:id/contact',validate('recruiter.contact'),command(domain,'recruiter.contact'));
+      r.patch('/recruiters/:id/signup-notifications',validate('recruiter.signup-notifications'),command(domain,'recruiter.signup-notifications'));
       r.post('/recruiters/:id/remove',validate('recruiter.remove'),command(domain,'recruiter.remove'));
       for(const name of ['companies','accounts','activity','worksites'])r.get('/'+name,read(req=>domain.list(req.user,name,req.query)));
       r.post('/companies/merge',validate('company.merge'),command(domain,'company.merge'));
@@ -139,6 +152,7 @@ export function apiRoutes({domain,auth,config,csrf,getIO=()=>null}){
       r.post('/accounts',validate('account.create'),command(domain,'account.create',{created:true}));
       r.post('/accounts/merge',validate('account.merge'),command(domain,'account.merge'));
       r.post('/accounts/:id/link',validate('account.link'),command(domain,'account.link'));
+      r.post('/accounts/:id/remove',validate('account.remove'),command(domain,'account.remove'));
       r.post('/events/mark-read',validate('events.read'),command(domain,'events.read'));
       r.post('/labour/:id/confirm',validate('labour.confirm'),read(async req=>{const before=await domain.record(domain.repo,req.user,'labour',req.params.id),result=await domain.execute(req.user,'labour.confirm',req.body,req.params.id,{route:req.baseUrl+req.route.path}),record=await domain.record(domain.repo,req.user,'labour',req.params.id);const previousCount=Number(before.fills?.[req.body.date]||0),workers=(record.workers?.[req.body.date]||[]).map(worker=>[worker.name,worker.phone].filter(Boolean).join(' — ')).filter(Boolean).join('\n');let clientNotificationSent=0,clientCompletionNotification={email:0,sms:0,whatsapp:0,push:0};if(before.version!==result.version&&previousCount!==req.body.count)try{clientCompletionNotification=await notifyCrewConfirmation(record,req.body.date,req.body.count,workers);clientNotificationSent=clientCompletionNotification.email;}catch{}return {...result,clientNotificationSent,clientCompletionNotification};}));
       r.patch('/labour/:id/recruiter',validate('labour.recruiter'),read(async req=>{const result=await domain.execute(req.user,'labour.recruiter',req.body,req.params.id,{route:req.baseUrl+req.route.path}),record=await domain.record(domain.repo,req.user,'labour',req.params.id);await Promise.allSettled((req.body.recruiterIds||[]).map(async recruiterId=>{const recruiter=await domain.repo.get('recruiters',recruiterId),channels=(result.recruiterNotifications?.[recruiterId]??['email']).filter(channel=>channel!=='voice');await notifyRecruiter(recruiter,channels,`Crew Ask: ${record.role} — request assigned`,`Hello ${recruiter.name},\n\nJob / crew role: ${record.role}\nRequest ID: ${record.referenceNumber}\nWorkers needed: ${record.headcount}\nWorksite: ${record.site.name}\n\nSign in to Crew Ask staff workspace for details.`);}));return result;}));

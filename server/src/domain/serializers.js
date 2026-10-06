@@ -14,7 +14,7 @@ export function companyDTO(c, sites = [], staff = false) {
     ...(staff ? ['billingContact','notes','recruiterId','recruiterIds','recruiterNotifications','mergedInto'] : [])]),worksites:sites.map(siteDTO)};
 }
 export function labourDTO(r, messages = [], staff = false) {
-  const result = pick(r,[...base,'referenceNumber','companyId','accountId','role','headcount','siteId','site','mode','start','end','days','dates',
+  const result = pick(r,[...base,'referenceNumber','companyId','accountId','role','headcount','headcountByDate','siteId','site','mode','start','end','days','dates',
     'startTime','endTime','equipment','tickets','licences','ppe','contactName','contactPhone','notes','phase','fills','workers','pendingChange','pendingCancel',
     ...(staff ? ['internalNotes','recruiterId','recruiterIds','recruiterNotifications'] : [])]);
   return {...result,_id:r.id,id:r.referenceNumber,messages:messages.map(m => ({id:m.id,by:m.senderType,name:m.senderName,text:m.text,at:m.createdAt}))};

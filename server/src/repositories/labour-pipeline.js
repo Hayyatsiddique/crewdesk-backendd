@@ -23,15 +23,16 @@ export function labourPipeline(query,{page=1,limit=25,status,upcoming=false,now=
     ],default:null}},null]}}},
     {$set:{__date:{$ifNull:['$__next','$start']}}},
     {$set:{__confirmed:{$let:{vars:{entries:{$filter:{input:{$objectToArray:{$ifNull:['$fills',{}]}},as:'f',cond:{$eq:['$$f.k','$__date']}}}},in:{$ifNull:[{$arrayElemAt:['$$entries.v',0]},0]}}}}},
+    {$set:{__requested:{$let:{vars:{entries:{$filter:{input:{$objectToArray:{$ifNull:['$headcountByDate',{}]}},as:'h',cond:{$eq:['$$h.k','$__date']}}}},in:{$ifNull:[{$arrayElemAt:['$$entries.v',0]},'$headcount']}}}}},
     {$set:{__phase:{$switch:{branches:[
       {case:{$eq:['$phase','cancelled']},then:'cancelled'},
       {case:{$eq:['$phase','info']},then:'info'},
-      {case:{$and:[{$gt:['$headcount',0]},{$gte:['$__confirmed','$headcount']}]},then:'filled'},
+      {case:{$and:[{$gt:['$__requested',0]},{$gte:['$__confirmed','$__requested']}]},then:'filled'},
       {case:{$or:[{$gt:['$__confirmed',0]},{$in:['$phase',['staffing','filled']]}]},then:'staffing'}
     ],default:'new'}}}}
   ];
   if(status&&status!=='all')stages.push({$match:{__phase:status}});
   if(upcoming)stages.push({$match:{__next:{$ne:null},phase:{$ne:'cancelled'}}});
-  stages.push({$facet:{items:[{$sort:upcoming?{__next:1,createdAt:-1,_id:-1}:{createdAt:-1,_id:-1}},{$skip:(page-1)*limit},{$limit:limit},{$unset:['__today','__candidate','__next','__date','__confirmed','__phase']}],count:[{$count:'total'}]}});
+  stages.push({$facet:{items:[{$sort:upcoming?{__next:1,createdAt:-1,_id:-1}:{createdAt:-1,_id:-1}},{$skip:(page-1)*limit},{$limit:limit},{$unset:['__today','__candidate','__next','__date','__confirmed','__requested','__phase']}],count:[{$count:'total'}]}});
   return stages;
 }
