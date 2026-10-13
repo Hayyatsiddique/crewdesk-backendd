@@ -1,6 +1,6 @@
 # CrewDesk Backend
 
-Express, MongoDB, authentication, email, and Aircall API for CrewDesk.
+Express, MongoDB, authentication, email, and Aircall API for CrewDesk. 
 
 ## Local development
 
