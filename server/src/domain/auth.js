@@ -99,6 +99,27 @@ export class AuthService{
     if(result.error)fail(400,'OTP_INVALID',result.error);return result;
   }
   async verifyStaffOtp(b,ip){return this.verifyOtp(b,ip,'staff');}
+  async centralStaffSession({email,name}){
+    const destination=v.email(email,true);
+    return this.repo.transaction(async tx=>{
+      const identity=await tx.get('identities','email:'+destination);
+      const identityUser=identity?await tx.get('users',identity.userId):null;
+      // A person may be both a customer contact and centrally-authorized
+      // staff. Keep the client identity attached to its original account and
+      // maintain a separate staff principal for the staff portal.
+      let u=identityUser?.kind==='staff'
+        ?identityUser
+        :await tx.findOne('users',{kind:'staff',normalizedEmail:destination});
+      if(u&&u.status!=='active')fail(403,'ACCOUNT_UNAVAILABLE','This staff account is unavailable. Contact an administrator.');
+      if(!u){
+        u=await tx.insert('users',{kind:'staff',name:v.optionalText(name,'Name',100)||destination.split('@')[0],email:destination,normalizedEmail:destination,phone:'',normalizedPhone:'',emailAliases:[],phoneAliases:[],emailVerified:true,phoneVerified:false,companyId:null,status:'active',authVersion:0});
+        if(!identity)await this.domain.claimIdentity(tx,'email',destination,u.id,true);
+      }
+      u.lastLoginAt=this.now();u.emailVerified=true;u=await tx.save('users',u);
+      await this.domain.audit(tx,u,'staff.central_sso_signin','Staff signed in through unified access.',null,u.id);
+      return this.session(tx,u);
+    });
+  }
   async authenticate(token,portal){
     if(!token||typeof token!=='string'||token.length>100)fail(401,'UNAUTHENTICATED','Please sign in.');
     const s=await this.repo.findOne('sessions',{tokenHash:sha(token),portal});

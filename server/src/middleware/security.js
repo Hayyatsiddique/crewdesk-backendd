@@ -1,5 +1,6 @@
 import {randomBytes,createHmac,timingSafeEqual} from 'node:crypto';
 import {fail} from '../domain/errors.js';
+import {centralCookie,centralConfigured,centralIntrospect} from '../services/central-auth.js';
 const same=(a,b)=>{if(typeof a!=='string'||typeof b!=='string')return false;const x=Buffer.from(a),y=Buffer.from(b);return x.length===y.length&&timingSafeEqual(x,y);};
 export const portalOf=req=>req.get('X-Portal')==='staff'?'staff':'client';
 export const cookieName=(portal,production)=>(production?'__Host-':'')+'cd_'+portal;
@@ -17,6 +18,6 @@ export function csrfSecurity(config){
     },valid
   };
 }
-export function authenticate(auth,config,kind){return async(req,res,next)=>{try{const portal=kind||portalOf(req);const found=await auth.authenticate(req.cookies[cookieName(portal,config.production)],portal);req.user=found.user;req.authSession=found.session;next();}catch(error){next(error);}};}
+export function authenticate(auth,config,kind){return async(req,res,next)=>{try{const portal=kind||portalOf(req);if(portal==='staff'&&req.cookies[centralCookie]&&centralConfigured(config)){const central=await centralIntrospect(config,req.cookies[centralCookie]);if(!central.active)fail(401,'SESSION_EXPIRED','Your unified session ended. Please sign in again.');}else if(portal==='staff'&&!config.centralAuthLegacyFallback)fail(401,'UNAUTHENTICATED','Please sign in through unified access.');const found=await auth.authenticate(req.cookies[cookieName(portal,config.production)],portal);req.user=found.user;req.authSession=found.session;next();}catch(error){next(error);}};}
 export const requireKind=kind=>(req,res,next)=>req.user?.kind===kind?next():next(Object.assign(new Error('Not authorized for this portal.'),{status:403,code:'FORBIDDEN'}));
 export function sessionResponse(res,value,config){res.cookie(cookieName(value.user.kind,config.production),value.token,{...cookieOptions(config),expires:new Date(value.expiresAt)});return {user:value.user,expiresAt:value.expiresAt};}
