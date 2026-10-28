@@ -1,11 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fixture} from '../support/fixtures.js';
-import {csrfSecurity,cookieOptions,cookieName,csrfCookie} from '../../server/src/middleware/security.js';
+import {authenticate,csrfSecurity,cookieOptions,cookieName,csrfCookie} from '../../server/src/middleware/security.js';
+import {centralCookie} from '../../server/src/services/central-auth.js';
 import {labourPipeline} from '../../server/src/repositories/labour-pipeline.js';
 const config={production:true,secret:'s'.repeat(64),origins:['https://crewdesk.example.test']};
 function issue(portal='client',jar={}){let value,cookie;const security=csrfSecurity(config),req={cookies:jar,get:name=>name==='X-Portal'?portal:undefined};security.issue(req,{cookie:(name,token,options)=>cookie={name,token,options},json:body=>value=body.data.csrfToken});return {security,value,cookie};}
 test('production cookies are Secure, HttpOnly, SameSite Strict and host scoped',()=>{assert.deepEqual(cookieOptions(config),{secure:true,httpOnly:true,sameSite:'strict',path:'/'});assert.equal(cookieName('client',true),'__Host-cd_client');assert.equal(cookieName('staff',true),'__Host-cd_staff');});
+test('expired staff authentication clears stale local and central cookies',async()=>{
+  const expired=Object.assign(new Error('Session expired'),{status:401,code:'SESSION_EXPIRED'}),cleared=[];
+  const auth={authenticate:async()=>{throw expired;}},settings={...config,centralAuthLegacyFallback:true};
+  const req={cookies:{[cookieName('staff',true)]:'stale'},get:name=>name==='X-Portal'?'staff':undefined};
+  const res={clearCookie:(name,options)=>cleared.push({name,options})};let forwarded;
+  await authenticate(auth,settings)(req,res,error=>{forwarded=error;});
+  assert.equal(forwarded,expired);
+  assert.deepEqual(cleared,[{name:cookieName('staff',true),options:cookieOptions(settings)},{name:centralCookie,options:{path:'/'}}]);
+});
 test('staff/admin sessions are independent per device and expire exactly after 90 days',async()=>{
   const f=await fixture(),started=f.clock().getTime(),desktop=await f.auth.session(f.repo,f.staff),mobile=await f.auth.session(f.repo,f.staff);
   assert.notEqual(desktop.token,mobile.token);
