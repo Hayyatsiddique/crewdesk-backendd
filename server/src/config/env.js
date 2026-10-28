@@ -2,7 +2,8 @@ import 'dotenv/config';
 const text=value=>String(value||'').trim();
 export function loadConfig(env=process.env){
   const production=env.NODE_ENV==='production',vercelOrigin=env.VERCEL_URL?`https://${env.VERCEL_URL}`:'',vercelProductionOrigin=env.VERCEL_PROJECT_PRODUCTION_URL?`https://${env.VERCEL_PROJECT_PRODUCTION_URL}`:'',origin=env.PUBLIC_ORIGIN||vercelProductionOrigin||vercelOrigin||'http://localhost:5000';
-  const origins=[...new Set([...(env.ALLOWED_ORIGINS||origin).split(','),origin,vercelOrigin,vercelProductionOrigin].map(x=>x.trim()).filter(Boolean))];
+  const crewAskProductionOrigins=production?['https://crewask.com','https://www.crewask.com','https://crewask.i8ops.com']:[];
+  const origins=[...new Set([...(env.ALLOWED_ORIGINS||origin).split(','),...crewAskProductionOrigins,origin,vercelOrigin,vercelProductionOrigin].map(x=>x.trim()).filter(Boolean))];
   for(const o of origins){const url=new URL(o);if(url.origin!==o)throw new Error('ALLOWED_ORIGINS entries must be origins without paths or trailing slashes.');if(production&&url.protocol!=='https:')throw new Error('Production requires HTTPS origins.');}
   if(!env.MONGODB_URI)throw new Error('Set MONGODB_URI to a MongoDB replica set or Atlas URI.');
   if(!env.AUTH_SECRET||env.AUTH_SECRET.length<48||/change|example|replace/i.test(env.AUTH_SECRET))throw new Error('Set AUTH_SECRET to at least 48 randomly generated characters.');

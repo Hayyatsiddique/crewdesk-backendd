@@ -10,7 +10,7 @@ import {read,command} from '../controllers/api.js';
 import {validate} from '../validators/http.js';
 import {authenticate,portalOf,cookieName,cookieOptions,sessionResponse} from '../middleware/security.js';
 import {userDTO} from '../domain/serializers.js';
-import {centralAuthorizeUrl,centralConfigured,centralCookie,centralEqual,centralExchange,centralRandom,centralRevoke} from '../services/central-auth.js';
+import {centralAuthorizeUrl,centralBrowserOrigin,centralCallbackUri,centralConfigured,centralCookie,centralEqual,centralExchange,centralRandom,centralRevoke} from '../services/central-auth.js';
 export function apiRoutes({domain,auth,config,csrf,getIO=()=>null}){
   const root=Router(),a=Router();root.use('/auth',a);
   let mailer;
@@ -115,8 +115,21 @@ export function apiRoutes({domain,auth,config,csrf,getIO=()=>null}){
   }catch(error){next(error);}});
   a.post('/staff/request-otp',validate('staffOtp'),read(req=>auth.requestStaffOtp(req.body,req.ip)));
   a.post('/staff/verify-otp',validate('verify'),async(req,res,next)=>{try{const value=await auth.verifyStaffOtp(req.body,req.ip);await auth.logout(req.cookies[cookieName('staff',config.production)],'staff');res.clearCookie(centralCookie,{path:'/'});res.json({data:sessionResponse(res,value,config)});}catch(error){next(error);}});
-  a.get('/staff/sso/start',(req,res,next)=>{try{if(!centralConfigured(config))throw Object.assign(new Error('Central sign-in is not configured.'),{status:503,code:'SSO_NOT_CONFIGURED'});const state=centralRandom(),verifier=centralRandom(),options={httpOnly:true,secure:config.production,sameSite:'lax',path:'/',maxAge:600000};res.cookie('crew_sso_state',state,options);res.cookie('crew_sso_verifier',verifier,options);res.redirect(centralAuthorizeUrl(config,state,verifier,req.query.silent==='1'));}catch(error){next(error);}});
-  a.get('/staff/sso/callback',async(req,res,next)=>{try{const validState=Boolean(req.query.state&&req.cookies.crew_sso_state&&centralEqual(req.query.state,req.cookies.crew_sso_state));if(req.query.error==='login_required'&&validState){res.clearCookie('crew_sso_state',{path:'/'});res.clearCookie('crew_sso_verifier',{path:'/'});return res.redirect(config.origin+'/staff?signed_out=1');}if(req.query.error&&validState){res.clearCookie('crew_sso_state',{path:'/'});res.clearCookie('crew_sso_verifier',{path:'/'});return res.redirect(config.origin+'/staff?sso_error='+(req.query.error==='access_denied'?'access_denied':'sso_failed'));}if(!req.query.code||!req.cookies.crew_sso_verifier||!validState){res.clearCookie('crew_sso_state',{path:'/'});res.clearCookie('crew_sso_verifier',{path:'/'});return res.redirect(config.origin+'/staff?sso_error=expired');}const token=await centralExchange(config,String(req.query.code),req.cookies.crew_sso_verifier),value=await auth.centralStaffSession(token);await auth.logout(req.cookies[cookieName('staff',config.production)],'staff');sessionResponse(res,value,config);res.cookie(centralCookie,token.access_token,{httpOnly:true,secure:config.production,sameSite:'lax',path:'/',maxAge:Math.max(60000,Number(token.expires_in||0)*1000)});res.clearCookie('crew_sso_state',{path:'/'});res.clearCookie('crew_sso_verifier',{path:'/'});res.redirect(config.origin+'/staff');}catch(error){next(error);}});
+  const clearCentralAttempt=res=>{for(const name of ['crew_sso_state','crew_sso_verifier','crew_sso_origin'])res.clearCookie(name,{path:'/'});};
+  a.get('/staff/sso/start',(req,res,next)=>{try{
+    if(!centralConfigured(config))throw Object.assign(new Error('Central sign-in is not configured.'),{status:503,code:'SSO_NOT_CONFIGURED'});
+    const state=centralRandom(),verifier=centralRandom(),origin=centralBrowserOrigin(config,req),redirectUri=centralCallbackUri(config,req,origin),options={httpOnly:true,secure:config.production,sameSite:'lax',path:'/',maxAge:600000};
+    res.cookie('crew_sso_state',state,options);res.cookie('crew_sso_verifier',verifier,options);res.cookie('crew_sso_origin',origin,options);
+    res.redirect(centralAuthorizeUrl(config,state,verifier,req.query.silent==='1',redirectUri));
+  }catch(error){next(error);}});
+  a.get('/staff/sso/callback',async(req,res,next)=>{try{
+    const origin=centralBrowserOrigin(config,req,req.cookies.crew_sso_origin),redirectUri=centralCallbackUri(config,req,origin),validState=Boolean(req.query.state&&req.cookies.crew_sso_state&&centralEqual(req.query.state,req.cookies.crew_sso_state));
+    if(req.query.error==='login_required'&&validState){clearCentralAttempt(res);return res.redirect(origin+'/staff?signed_out=1');}
+    if(req.query.error&&validState){clearCentralAttempt(res);return res.redirect(origin+'/staff?sso_error='+(req.query.error==='access_denied'?'access_denied':'sso_failed'));}
+    if(!req.query.code||!req.cookies.crew_sso_verifier||!validState){clearCentralAttempt(res);return res.redirect(origin+'/staff?sso_error=expired');}
+    const token=await centralExchange(config,String(req.query.code),req.cookies.crew_sso_verifier,redirectUri),value=await auth.centralStaffSession(token);await auth.logout(req.cookies[cookieName('staff',config.production)],'staff');
+    sessionResponse(res,value,config);res.cookie(centralCookie,token.access_token,{httpOnly:true,secure:config.production,sameSite:'lax',path:'/',maxAge:Math.max(60000,Number(token.expires_in||0)*1000)});clearCentralAttempt(res);res.redirect(origin+'/staff');
+  }catch(error){next(error);}});
   a.get('/me',authenticate(auth,config),read(req=>({user:userDTO(req.user,req.user.kind==='staff'),expiresAt:req.authSession.expiresAt})));
   a.post('/logout',async(req,res,next)=>{try{const portal=portalOf(req),token=req.cookies[cookieName(portal,config.production)];let sid;try{sid=(await auth.authenticate(token,portal)).session.id;}catch{}if(portal==='staff')await centralRevoke(config,req.cookies[centralCookie]);await auth.logout(token,portal);if(sid)getIO()?.in('session:'+sid).disconnectSockets(true);res.clearCookie(cookieName(portal,config.production),cookieOptions(config));res.clearCookie(centralCookie,{path:'/'});res.json({data:{signedOut:true}});}catch(error){next(error);}});
   for(const kind of ['staff','client']){
